@@ -78,6 +78,27 @@ void update_motor_speed(MotorState &motor_state, const Point &point, const Motor
   }
 }
 
+void data_callback(const uint16_t& data, MotorState &motor_state, const MotorType motor_type) {
+  if (!motor_state.assigned_target) return;
+
+  std::cout << (motor_type == HORIZONTAL ? "Horizontal" : "Vertical" ) << " motor data: " << static_cast<int>(data) << ", target units: " << motor_state.target_units << "\n";
+  motor_state.current_units = data;
+
+  const auto distance = abs(motor_state.current_units - motor_state.target_units);
+  // TODO: adjust motor speed dynamically based on distance to not under/overshoot
+  if (distance <= ENCODER_UNITS_DISTANCE_TOLERANCE) {
+    motor_state.motor->send_data(0);
+    motor_state.assigned_target = false;
+    std::cout << "Reached " << (motor_type == HORIZONTAL ? "horizontal" : "vertical") << " target\n";
+  } else if (distance <= 10) {
+    const auto is_positive_direction = (motor_type == HORIZONTAL)
+      ? std::get<HorizontalDirection>(motor_state.rotation_direction) == RIGHT
+      : std::get<VerticalDirection>(motor_state.rotation_direction) == UP;
+    const auto speed = static_cast<signed char>(is_positive_direction ? 60 : -60);
+    motor_state.motor->send_data(speed);
+  }
+}
+
 int solver(const std::shared_ptr<backend_interface::Tester> tester, const bool preempt) {
   // TODO: implement queueing logic if preempt is false
   std::vector<Point> queued_points;
@@ -89,45 +110,15 @@ int solver(const std::shared_ptr<backend_interface::Tester> tester, const bool p
   MotorState horizontal_motor_state{ .motor = tester->get_motor_1() };
   MotorState vertical_motor_state{ .motor = tester->get_motor_2() };
 
-  horizontal_motor_state.motor->add_data_callback([&horizontal_motor_state](const uint16_t& data) {
-    if (!horizontal_motor_state.assigned_target) return;
-
-    std::cout << "Motor 1 data: " << static_cast<int>(data) << ", horizontal target units: " << horizontal_motor_state.target_units << "\n";
-    horizontal_motor_state.current_units = data;
-
-    const auto distance = abs(horizontal_motor_state.current_units - horizontal_motor_state.target_units);
-    // TODO: adjust motor speed dynamically based on distance to not under/overshoot
-    if (distance <= ENCODER_UNITS_DISTANCE_TOLERANCE) {
-      horizontal_motor_state.motor->send_data(0);
-      horizontal_motor_state.assigned_target = false;
-      std::cout << "Reached horizontal target\n";
-    } else if (distance <= 10) {
-      const auto rotation_direction = std::get<HorizontalDirection>(horizontal_motor_state.rotation_direction);
-      const auto speed = static_cast<signed char>((rotation_direction == RIGHT) ? 60 : -60);
-      horizontal_motor_state.motor->send_data(speed);
-    }
+  horizontal_motor_state.motor->add_data_callback([&](const uint16_t& data) {
+    data_callback(data, horizontal_motor_state, HORIZONTAL);
   });
 
-  vertical_motor_state.motor->add_data_callback([&vertical_motor_state](const uint16_t& data) {
-    if (!vertical_motor_state.assigned_target) return;
-
-    std::cout << "Motor 2 data: " << static_cast<int>(data) << ", vertical target units: " << vertical_motor_state.target_units << "\n";
-    vertical_motor_state.current_units = data;
-
-    const auto distance = abs(vertical_motor_state.current_units - vertical_motor_state.target_units);
-    // TODO: adjust motor speed dynamically based on distance to not under/overshoot
-    if (distance <= ENCODER_UNITS_DISTANCE_TOLERANCE) {
-      vertical_motor_state.motor->send_data(0);
-      vertical_motor_state.assigned_target = false;
-      std::cout << "Reached vertical target\n";
-    } else if (distance <= 10) {
-      const auto rotation_direction = std::get<VerticalDirection>(vertical_motor_state.rotation_direction);
-      const auto speed = static_cast<signed char>((rotation_direction == UP) ? 60 : -60);
-      vertical_motor_state.motor->send_data(speed);
-    }
+  vertical_motor_state.motor->add_data_callback([&](const uint16_t& data) {
+    data_callback(data, vertical_motor_state, VERTICAL);
   });
 
-  commands->add_data_callback([&horizontal_motor_state, &vertical_motor_state](const Point& point) {
+  commands->add_data_callback([&](const Point& point) {
     std::cout << "Command point: (" << point.x << ", " << point.y << ", " << point.z << ")\n";
 
     update_motor_speed(horizontal_motor_state, point, HORIZONTAL);
