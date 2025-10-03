@@ -38,24 +38,24 @@ double degrees_to_encoder_units(const double degrees) {
   return degrees * ENCODER_UNITS_PER_DEGREE;
 }
 
-double calculate_yaw_from_point(const MotorState &motor, const Point &point) {
+double calculate_yaw_from_point(const Point &point) {
   return atan2(-point.y, point.x) * (180 / M_PI);
 }
 
-double calculate_pitch_from_point(const MotorState &motor, const Point &point) {
+double calculate_pitch_from_point(const Point &point) {
   const double distance = sqrt(point.x * point.x + point.y * point.y);
   return atan2(point.z, distance) * (180 / M_PI);
 }
 
-uint16_t calculate_target_encoder_units(const MotorState &motor, const Point &point, const MotorType motor_type) {
+uint16_t calculate_target_encoder_units(const Point &point, const MotorType motor_type) {
   const double degrees = (motor_type == HORIZONTAL)
-    ? calculate_yaw_from_point(motor, point)
-    : calculate_pitch_from_point(motor, point);
+    ? calculate_yaw_from_point(point)
+    : calculate_pitch_from_point(point);
   return static_cast<uint16_t>(degrees_to_encoder_units(degrees)) % 4096;
 }
 
 void update_motor_speed(MotorState &motor_state, const Point &point, const MotorType motor_type) {
-  motor_state.target_units = calculate_target_encoder_units(motor_state, point, motor_type);
+  motor_state.target_units = calculate_target_encoder_units(point, motor_type);
   if (motor_state.target_units != motor_state.current_units) {
     motor_state.assigned_target = true;
 
