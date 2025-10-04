@@ -5,7 +5,7 @@
 
 #include "tester.hpp"
 #include "../../include/backend/motor.hpp"
-#include "solution.hpp"
+#include "../../include/solution/solution.hpp"
 
 void update_motor_speed(MotorState& motor_state, const Point& point) {
   motor_state.target_units = calculate_target_encoder_units(point, motor_state.motor_type);
