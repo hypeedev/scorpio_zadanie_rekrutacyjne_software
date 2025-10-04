@@ -20,7 +20,7 @@ enum MotorType {
   VERTICAL
 };
 
-typedef std::shared_ptr<backend_interface::Component<int8_t, uint16_t>> Motor_t;
+using Motor_t = std::shared_ptr<backend_interface::Component<int8_t, uint16_t>>;
 
 struct MotorState {
   Motor_t motor;
@@ -38,7 +38,7 @@ struct PointState {
   bool vertical_motor_done;
 };
 
-typedef std::vector<PointState> PointQueue_t;
+using PointQueue_t = std::vector<PointState>;
 
 constexpr int ENCODER_UNITS_DISTANCE_TOLERANCE = 3;
 constexpr double ENCODER_UNITS_PER_DEGREE = 4096.0 / 360.0;
@@ -52,7 +52,7 @@ double calculate_yaw_from_point(const Point& point) {
 }
 
 double calculate_pitch_from_point(const Point& point) {
-  const double distance = sqrt(point.x * point.x + point.y * point.y);
+  const double distance = std::hypot(point.x, point.y);
   return atan2(point.z, distance) * (180 / M_PI);
 }
 
@@ -65,32 +65,33 @@ uint16_t calculate_target_encoder_units(const Point& point, const MotorType moto
 
 void update_motor_speed(MotorState& motor_state, const Point& point) {
   motor_state.target_units = calculate_target_encoder_units(point, motor_state.motor_type);
-  if (motor_state.target_units != motor_state.current_units) {
-    motor_state.assigned_target = true;
-
-    auto delta = motor_state.target_units - motor_state.current_units;
-    if (delta > 2048) delta -= 4096;
-    else if (delta < -2048) delta += 4096;
-
-    // Slightly adjust target to avoid undershooting
-    if (delta > 0) {
-      motor_state.target_units += ENCODER_UNITS_DISTANCE_TOLERANCE / 3;
-    } else if (delta < 0) {
-      motor_state.target_units -= ENCODER_UNITS_DISTANCE_TOLERANCE / 3;
-    }
-
-    motor_state.rotation_direction = (motor_state.motor_type == HORIZONTAL)
-      ? std::variant<HorizontalDirection, VerticalDirection>(delta > 0 ? RIGHT : LEFT)
-      : std::variant<HorizontalDirection, VerticalDirection>(delta > 0 ? UP : DOWN);
-    const auto horizontal_speed = static_cast<signed char>(delta > 0 ? 127 : -128);
-    motor_state.motor->send_data(horizontal_speed);
+  if (motor_state.target_units == motor_state.current_units) {
+    return;
   }
+
+  motor_state.assigned_target = true;
+
+  auto delta = motor_state.target_units - motor_state.current_units;
+  if (delta > 2048) delta -= 4096;
+  else if (delta < -2048) delta += 4096;
+
+  // Slightly adjust target to avoid undershooting
+  if (delta > 0) {
+    motor_state.target_units += ENCODER_UNITS_DISTANCE_TOLERANCE / 3;
+  } else if (delta < 0) {
+    motor_state.target_units -= ENCODER_UNITS_DISTANCE_TOLERANCE / 3;
+  }
+
+  motor_state.rotation_direction = (motor_state.motor_type == HORIZONTAL)
+    ? std::variant<HorizontalDirection, VerticalDirection>(delta > 0 ? RIGHT : LEFT)
+    : std::variant<HorizontalDirection, VerticalDirection>(delta > 0 ? UP : DOWN);
+  motor_state.motor->send_data(delta > 0 ? 127 : -128);
 }
 
 void print_queued_points(const PointQueue_t& points) {
   std::cout << "Queued points:\n";
-  for (const auto &point_state : points) {
-    const auto &point = point_state.point;
+  for (const auto& point_state : points) {
+    const auto& point = point_state.point;
     std::cout << "(" << point.x << ", " << point.y << ", " << point.z << ") - H done: " << point_state.horizontal_motor_done << ", V done: " << point_state.vertical_motor_done << "\n";
   }
 }
@@ -114,7 +115,7 @@ bool encoder_data_callback(const uint16_t& data, MotorState& motor_state, const 
   std::cout << (motor_state.motor_type == HORIZONTAL ? "Horizontal" : "Vertical") << " motor data: " << static_cast<int>(data) << ", target units: " << motor_state.target_units << "\n";
   motor_state.current_units = data;
 
-  const auto distance = abs(motor_state.current_units - motor_state.target_units);
+  const auto distance = std::abs(motor_state.current_units - motor_state.target_units);
   // TODO: adjust motor speed dynamically based on distance to not under/overshoot
   if (distance <= ENCODER_UNITS_DISTANCE_TOLERANCE) {
     motor_state.motor->send_data(0);
@@ -125,7 +126,7 @@ bool encoder_data_callback(const uint16_t& data, MotorState& motor_state, const 
       return false;
     }
 
-    auto &last_point = queued_points.front();
+    auto& last_point = queued_points.front();
 
     if (motor_state.motor_type == HORIZONTAL) {
       last_point.horizontal_motor_done = true;
@@ -138,18 +139,15 @@ bool encoder_data_callback(const uint16_t& data, MotorState& motor_state, const 
     }
 
     queued_points.erase(queued_points.begin());
-
     print_queued_points(queued_points);
-
     return true;
   }
 
   if (distance <= 10) {
     const auto is_positive_direction = (motor_state.motor_type == HORIZONTAL)
-                                         ? std::get<HorizontalDirection>(motor_state.rotation_direction) == RIGHT
-                                         : std::get<VerticalDirection>(motor_state.rotation_direction) == UP;
-    const auto speed = static_cast<signed char>(is_positive_direction ? 60 : -60);
-    motor_state.motor->send_data(speed);
+      ? std::get<HorizontalDirection>(motor_state.rotation_direction) == RIGHT
+      : std::get<VerticalDirection>(motor_state.rotation_direction) == UP;
+    motor_state.motor->send_data(is_positive_direction ? 60 : -60);
   }
 
   return false;
@@ -168,28 +166,26 @@ int solver(const std::shared_ptr<backend_interface::Tester> tester, const bool p
   horizontal_motor_state.motor->add_data_callback([&](const uint16_t& data) {
     const auto process_next_point = encoder_data_callback(data, horizontal_motor_state, preempt, queued_points);
     if (process_next_point && !queued_points.empty()) {
-      const auto next_point = queued_points.front().point;
-      process_point(next_point, preempt, horizontal_motor_state, vertical_motor_state, queued_points);
+      process_point(queued_points.front().point, preempt, horizontal_motor_state, vertical_motor_state, queued_points);
     }
   });
 
   vertical_motor_state.motor->add_data_callback([&](const uint16_t& data) {
     const auto process_next_point = encoder_data_callback(data, vertical_motor_state, preempt, queued_points);
     if (process_next_point && !queued_points.empty()) {
-      const auto next_point = queued_points.front().point;
-      process_point(next_point, preempt, horizontal_motor_state, vertical_motor_state, queued_points);
+      process_point(queued_points.front().point, preempt, horizontal_motor_state, vertical_motor_state, queued_points);
     }
   });
 
   commands->add_data_callback([&](const Point& point) {
     if (!preempt) {
-      queued_points.push_back({ point, false, false });
+      queued_points.push_back({ point });
     }
 
     process_point(point, preempt, horizontal_motor_state, vertical_motor_state, queued_points);
   });
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(3600 * 1000));
+  std::this_thread::sleep_for(std::chrono::hours(1));
 
   return 0;
 }
